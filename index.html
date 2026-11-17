@@ -54,6 +54,10 @@
   .chip{border:1px solid #b9e2d6;background:var(--accent-soft);color:#0b5345;border-radius:999px;padding:7px 12px;font-size:14px;line-height:1}
   .chip.out{border-color:#f3c4b5;background:var(--out-soft);color:var(--out);text-decoration:line-through}
   .chip .mark{font-weight:700;margin-left:4px;text-decoration:none;display:inline-block}
+  .notice{background:var(--warn-soft);color:#7c4a03;border:1px solid #f5d38a;border-radius:12px;padding:10px 12px;font-size:13px;line-height:1.6;margin-bottom:12px}
+  .notice b{color:#92400e}
+  .absent-hint{margin-top:10px;font-size:13px;line-height:1.5;color:var(--out);background:var(--out-soft);border-radius:10px;padding:8px 10px}
+  .absent-hint b{font-weight:700}
   .count{font-size:12px;color:var(--sub);margin-top:8px}
   .meta{font-size:11px;color:var(--sub);margin-top:4px}
   .card .actions{margin-top:10px;display:flex;gap:8px}
@@ -316,7 +320,7 @@ $app.addEventListener('click', async e => {
   }
 });
 function shareGroupText(name, gid){
-  return `【${name}】打ち合わせ日程ページです📅\n\n今後の打ち合わせはここで確認できます。\n・名前が書いてある人は「参加」扱いです\n・来られない時は、自分の名前をタップして×にしてください\n・日時の変更も、誰でもできます\n\n${groupUrl(gid)}\n\n※このURLはこのグループ内だけで使ってください`;
+  return `【${name}】打ち合わせ日程ページです📅\n\n今後の打ち合わせはここで確認できます。\n・名前が書いてある人は「参加」扱いです\n・来られない時は、自分の名前をタップして×にしてください\n・日時の変更も、誰でもできます\n⚠️ 日時を変更しても、皆さんに通知は届きません。変更したときは、必ずこのグループLINEで一言お知らせください\n\n${groupUrl(gid)}\n\n※このURLはこのグループ内だけで使ってください`;
 }
 function openShareGroup(gid, name){
   const text = shareGroupText(name, gid);
@@ -430,6 +434,7 @@ function meetingCard(m, isPast){
         </div>`
       : `<div class="place">🔗 ${esc(m.url)}</div>`) : ''}
     ${m.memo ? `<div class="memo">${esc(m.memo)}</div>` : ''}
+    ${m.participants.length && !isPast ? `<div class="absent-hint">👆 <b>欠席の方は、ご自分のお名前を押してください。</b><br>「欠席 ×」に変わります（もう一度押すと参加に戻ります）</div>` : ''}
     ${m.participants.length ? `<div class="people">${chips}</div><div class="count">参加 ${inN} ・ 欠席 ${outN}</div>` : `<div class="memo">参加者がまだいません</div>`}
     ${meta ? `<div class="meta">${meta}</div>` : ''}
     <div class="actions"><button class="btn small ghost" data-act="edit" data-id="${esc(m.id)}">✏️ 日時・内容を変更</button></div>
@@ -447,6 +452,7 @@ function renderGroup(){
     <header class="top"><div><div class="kicker">打ち合わせ日程</div><h1>${esc(G.name)}</h1></div>
       <button class="me" id="me">👤 ${me ? esc(me) : '名前を設定'}</button></header>
     <div class="hint">名前が書いてある人は<b>参加</b>扱いです。来られない時は、<b>自分の名前をタップして×</b>にしてください。日時の変更も誰でもできます。</div>
+    <div class="notice">⚠️ <b>日時を変更しても、参加者の皆さんに通知は届きません。</b><br>このページで日時・場所・参加用URLを変えたときは、<b>必ずグループLINEで一言お知らせください。</b></div>
     <button class="btn primary block" id="add">＋ 予定を追加</button>
     <div class="section-title">今後の予定（${upcoming.length}）</div>
     ${upcoming.length ? upcoming.map(m => meetingCard(m, false)).join('') : `<div class="empty">今後の予定はまだありません。</div>`}
@@ -503,6 +509,7 @@ function openMeetingEditor(id){
       <div class="addname"><input type="text" id="fnew" placeholder="名簿にない人を追加" style="font-size:16px;padding:8px 10px;border:1px solid var(--line);border-radius:10px"><button class="btn small ghost" id="fadd">追加</button></div>
       ${pool.length ? `<button class="linkbtn" id="fall">全員チェック</button>` : ''}
     </div>
+    <div class="notice" style="margin:4px 0 0">⚠️ 保存しても、参加者の皆さんに<b>通知は届きません</b>。保存後に<b>グループLINEで一言お知らせください。</b></div>
     <div class="btns"><button class="btn ghost" id="cl">キャンセル</button><button class="btn primary" id="ok">保存</button></div>
     ${isNew ? '' : `<div class="btns"><button class="btn danger" id="del">この予定を削除</button></div>`}`);
 
@@ -611,9 +618,9 @@ function offerNotify(res){
   lines.push('', '来られない人は自分の名前をタップして×にしてください', groupUrl(GID));
   const text = lines.join('\n');
   openModal(`<h2>保存しました ✅</h2>
-    <div style="font-size:14px;margin-bottom:8px">グループLINEにも知らせますか？</div>
+    <div class="notice">⚠️ <b>まだ参加者の皆さんには伝わっていません。</b><br>このページで変更しても通知は届かないので、下のボタンで<b>グループLINEにお知らせしてください。</b></div>
     <div class="preview">${esc(text)}</div>
-    ${shareButtons(text, 'LINEで知らせる', '知らせない')}`);
+    ${shareButtons(text, 'グループLINEで知らせる', '自分でLINEに書くので閉じる')}`);
   const ln = document.getElementById('ln'); if(ln) ln.addEventListener('click', () => setTimeout(closeModal, 300));
   document.getElementById('cp').onclick = () => copyText(text);
   document.getElementById('cl').onclick = closeModal;
