@@ -43,10 +43,13 @@
   .badge.today{background:var(--accent);color:#fff}
   .place,.memo{font-size:14px;margin-top:6px;line-height:1.5;word-break:break-word;white-space:pre-wrap}
   .memo{color:var(--sub)}
-  .joinurl{display:flex;align-items:center;gap:8px;margin-top:8px;background:#eef4ff;border-radius:10px;padding:8px 10px}
-  .joinurl a.open{flex-shrink:0;background:#2563eb;color:#fff;text-decoration:none;font-size:13px;font-weight:700;border-radius:8px;padding:7px 10px}
-  .joinurl .u{font-size:12px;color:#1e40af;word-break:break-all;line-height:1.4;flex:1;min-width:0}
-  .joinurl button{flex-shrink:0;border:1px solid #c7d7fe;background:#fff;color:#1e40af;font-size:12px;border-radius:8px;padding:6px 8px}
+  .joinurl{margin-top:10px;background:#eef4ff;border:1px solid #c7d7fe;border-radius:12px;padding:10px}
+  .joinurl .jt{font-size:12px;font-weight:700;color:#1e40af;margin-bottom:6px}
+  .joinurl a.open{display:block;text-align:center;background:#2563eb;color:#fff;text-decoration:none;font-size:16px;font-weight:700;border-radius:10px;padding:12px 10px}
+  .joinurl .jh{font-size:12px;color:#1e3a8a;margin-top:6px;line-height:1.5}
+  .joinurl .ur{display:flex;align-items:center;gap:8px;margin-top:6px}
+  .joinurl .u{font-size:11px;color:#64748b;word-break:break-all;line-height:1.4;flex:1;min-width:0}
+  .joinurl button{flex-shrink:0;border:1px solid #c7d7fe;background:#fff;color:#1e40af;font-size:12px;border-radius:8px;padding:5px 8px}
   .people{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
   .chip{border:1px solid #b9e2d6;background:var(--accent-soft);color:#0b5345;border-radius:999px;padding:7px 12px;font-size:14px;line-height:1}
   .chip.out{border-color:#f3c4b5;background:var(--out-soft);color:var(--out);text-decoration:line-through}
@@ -161,8 +164,16 @@ function shareButtons(text, lineLabel, closeLabel){
     <div class="btns"><button class="btn ghost" id="cl">${closeLabel}</button></div>`;
 }
 const isUrl = u => /^https?:\/\/\S+$/i.test(String(u || '').trim());
+function meetService(u){
+  const h = String(u || '').toLowerCase();
+  if(h.includes('zoom.us') || h.includes('zoom.com')) return 'Zoom';
+  if(h.includes('meet.google')) return 'Google Meet';
+  if(h.includes('teams.microsoft') || h.includes('teams.live')) return 'Teams';
+  if(h.includes('webex')) return 'Webex';
+  return '';
+}
 const placeLine = m => `${fmtWhen(m)}${m.place ? '　' + m.place : ''}`;
-const urlLine = m => m.url ? `\n🔗 参加用URL：${m.url}` : '';
+const urlLine = m => m.url ? `\n💻 オンライン参加はこちら（時間になったら押してください）\n${m.url}` : '';
 const isRecent = t => t && (Date.now() - t) < CHANGED_DAYS * DAY;
 
 function toast(msg){
@@ -259,7 +270,7 @@ function renderAdmin(){
       const inN = n.participants.filter(p => p.status !== 'out').length;
       const outN = n.participants.length - inN;
       nextHtml = `<div class="next">次回 <b>${esc(fmtWhen(n))}</b>${n.date === t ? '<span class="badge today">今日</span>' : ''}
-        ${n.place ? ' ・ ' + esc(n.place) : ''}${isUrl(n.url) ? ` <a href="${esc(n.url.trim())}" target="_blank" rel="noopener" style="font-size:13px">🔗参加用URL</a>` : ''}<br><span style="color:var(--sub);font-size:12px">参加 ${inN} ・ 欠席 ${outN}${upcomingCount > 1 ? ` ／ ほか今後 ${upcomingCount - 1} 件` : ''}</span></div>`;
+        ${n.place ? ' ・ ' + esc(n.place) : ''}${isUrl(n.url) ? ` <a href="${esc(n.url.trim())}" target="_blank" rel="noopener" style="font-size:13px">💻会議に入る</a>` : ''}<br><span style="color:var(--sub);font-size:12px">参加 ${inN} ・ 欠席 ${outN}${upcomingCount > 1 ? ` ／ ほか今後 ${upcomingCount - 1} 件` : ''}</span></div>`;
     }
     const ch = g.lastChange && isRecent(g.lastChange.at)
       ? `<div class="change">🔔 ${esc(fmtStamp(g.lastChange.at))} ${esc(g.lastChange.by || 'だれか')}さん：${esc(g.lastChange.text)}</div>` : '';
@@ -411,7 +422,12 @@ function meetingCard(m, isPast){
       ${m.date === t ? '<span class="badge today">今日</span>' : ''}${changed ? '<span class="badge changed">変更あり</span>' : ''}</div>
     ${m.place ? `<div class="place">📍 ${esc(m.place)}</div>` : ''}
     ${m.url ? (isUrl(m.url)
-      ? `<div class="joinurl"><a class="open" href="${esc(m.url.trim())}" target="_blank" rel="noopener">🔗 参加する</a><span class="u">${esc(m.url)}</span><button data-act="copyurl" data-id="${esc(m.id)}">コピー</button></div>`
+      ? `<div class="joinurl">
+          <div class="jt">💻 オンラインで参加する方はこちら</div>
+          <a class="open" href="${esc(m.url.trim())}" target="_blank" rel="noopener">▶ ${meetService(m.url) ? esc(meetService(m.url)) + 'の' : ''}会議に入る</a>
+          <div class="jh">時間になったら上のボタンを押すと、そのまま会議に入れます。<br>（出欠の登録は、下の名前のボタンでします）</div>
+          <div class="ur"><span class="u">${esc(m.url)}</span><button data-act="copyurl" data-id="${esc(m.id)}">URLをコピー</button></div>
+        </div>`
       : `<div class="place">🔗 ${esc(m.url)}</div>`) : ''}
     ${m.memo ? `<div class="memo">${esc(m.memo)}</div>` : ''}
     ${m.participants.length ? `<div class="people">${chips}</div><div class="count">参加 ${inN} ・ 欠席 ${outN}</div>` : `<div class="memo">参加者がまだいません</div>`}
