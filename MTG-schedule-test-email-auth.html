@@ -311,7 +311,7 @@ function renderSetup(){
     ev.target.disabled = true; ev.target.textContent = '作成中…';
     try{
       const key = rid(28);
-      await setDoc(doc(db, 'admins', key), { groups: [], createdAt: Date.now() });
+      await setDoc(doc(db, 'admins', key), { ownerUid: auth.currentUser.uid, groups: [], createdAt: Date.now() });
       location.replace(`${BASE}?admin=${key}&first=1`);
     }catch(e){ showError(e); ev.target.disabled = false; ev.target.textContent = '管理ページを作成する'; }
   };
