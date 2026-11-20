@@ -432,7 +432,7 @@ function openNewGroup(){
     ev.target.disabled = true; ev.target.textContent = '作成中…';
     try{
       const gid = rid(20);
-      await setDoc(doc(db, 'groups_secure_test', gid), { name, members, meetings: [], updatedAt: Date.now(), lastChange: null });
+      await setDoc(doc(db, 'groups_secure_test', gid), { name, members, meetings: [], ownerUid: auth.currentUser.uid, adminId: ADMIN, updatedAt: Date.now(), lastChange: null }); 
       await runTransaction(db, async tx => {
         const ref = doc(db, 'admins_secure_test', ADMIN); const s = await tx.get(ref); const d = s.data();
         d.groups = [...(d.groups || []), { gid, name }]; tx.set(ref, d); A = d;
