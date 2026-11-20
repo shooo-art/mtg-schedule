@@ -258,7 +258,7 @@ async function finishEmailLink(){
   $app.innerHTML = '<div class="loading">メール認証を確認しています…</div>';
   let email = '';
   try { email = localStorage.getItem(EMAIL_KEY) || ''; } catch (_) {}
-  if(!email) email = (prompt('認証メールを受け取ったメールアドレスを入力してください') || '').trim();
+  // if(!email) email = (prompt('認証メールを受け取るアドレスを入力してください') || '').trim();
   if(!email){ renderEmailLogin('認証に使ったメールアドレスを入力して、もう一度リンクを開いてください。'); return true; }
   try {
     await signInWithEmailLink(auth, email, location.href);
