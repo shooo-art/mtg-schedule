@@ -308,7 +308,13 @@ function renderSetup(){
       <button class="btn primary block" style="margin-top:12px" id="mkAdmin">管理ページを作成する</button>
     </div>`;
   document.getElementById('mkAdmin').onclick = async (ev) => {
-    ev.target.disabled = true; ev.target.textContent = '作成中…';
+    
+const user = auth.currentUser;
+if (!user || user.isAnonymous || !user.emailVerified) {
+  renderEmailLogin('管理ページの作成にはメール認証が必要です。');
+  return;
+}
+  ev.target.disabled = true; ev.target.textContent = '作成中…';
     try{
       const key = rid(28);
       await setDoc(doc(db, 'admins_secure_test', key), { ownerUid: auth.currentUser.uid, groups: [], createdAt: Date.now() });
