@@ -311,7 +311,7 @@ function renderSetup(){
     ev.target.disabled = true; ev.target.textContent = '作成中…';
     try{
       const key = rid(28);
-      await setDoc(doc(db, 'admins', key), { ownerUid: auth.currentUser.uid, groups: [], createdAt: Date.now() });
+      await setDoc(doc(db, 'admins_secure_test', key), { ownerUid: auth.currentUser.uid, groups: [], createdAt: Date.now() });
       location.replace(`${BASE}?admin=${key}&first=1`);
     }catch(e){ showError(e); ev.target.disabled = false; ev.target.textContent = '管理ページを作成する'; }
   };
@@ -324,7 +324,7 @@ let A = null;          // admins/{key} の中身
 let AG = {};           // gid -> group data
 async function initAdmin(key){
   try{
-    const snap = await getDoc(doc(db, 'admins', key));
+    const snap = await getDoc(doc(db, 'admins_secure_test', key));
     if(!snap.exists()){ $app.innerHTML = `<div class="empty">管理ページが見つかりません。<br>URLをもう一度確認してください。</div>`; return; }
     A = snap.data();
     await loadAdminGroups();
@@ -333,7 +333,7 @@ async function initAdmin(key){
 }
 async function loadAdminGroups(){
   const list = A.groups || [];
-  const snaps = await Promise.all(list.map(g => getDoc(doc(db, 'groups', g.gid)).catch(() => null)));
+  const snaps = await Promise.all(list.map(g => getDoc(doc(db, 'groups_secure_test', g.gid)).catch(() => null)));
   AG = {};
   snaps.forEach((s, i) => { if(s && s.exists()) AG[list[i].gid] = s.data(); });
 }
@@ -385,7 +385,7 @@ function renderAdmin(){
     ${rows.length ? list : `<div class="empty">まだグループがありません。<br>「＋ グループを作成」から始めましょう。</div>`}
     <div class="footer-links"><button class="linkbtn" id="copyAdmin2">この管理ページのURLをコピー</button></div>`;
 
-  document.getElementById('reload').onclick = async () => { toast('更新中…'); try{ const s = await getDoc(doc(db,'admins',ADMIN)); A = s.data(); await loadAdminGroups(); renderAdmin(); toast('最新の状態です'); }catch(e){ showError(e); } };
+  document.getElementById('reload').onclick = async () => { toast('更新中…'); try{ const s = await getDoc(doc(db,'admins_secure_test',ADMIN)); A = s.data(); await loadAdminGroups(); renderAdmin(); toast('最新の状態です'); }catch(e){ showError(e); } };
   document.getElementById('newGroup').onclick = openNewGroup;
   const ca = document.getElementById('copyAdmin'); if(ca) ca.onclick = () => copyText(adminUrl(ADMIN));
   document.getElementById('copyAdmin2').onclick = () => copyText(adminUrl(ADMIN));
@@ -399,7 +399,7 @@ $app.addEventListener('click', async e => {
     if(!b.classList.contains('armed')){ b.classList.add('armed','danger'); b.textContent = 'もう一度押すと外します'; setTimeout(() => { if(b.isConnected){ b.classList.remove('armed','danger'); b.textContent = '一覧から外す'; } }, 4000); return; }
     try{
       await runTransaction(db, async tx => {
-        const ref = doc(db, 'admins', ADMIN); const s = await tx.get(ref); const d = s.data();
+        const ref = doc(db, 'admins_secure_test', ADMIN); const s = await tx.get(ref); const d = s.data();
         d.groups = (d.groups || []).filter(x => x.gid !== gid); tx.set(ref, d); A = d;
       });
       renderAdmin(); toast('一覧から外しました');
@@ -432,9 +432,9 @@ function openNewGroup(){
     ev.target.disabled = true; ev.target.textContent = '作成中…';
     try{
       const gid = rid(20);
-      await setDoc(doc(db, 'groups', gid), { name, members, meetings: [], updatedAt: Date.now(), lastChange: null });
+      await setDoc(doc(db, 'groups_secure_test', gid), { name, members, meetings: [], updatedAt: Date.now(), lastChange: null });
       await runTransaction(db, async tx => {
-        const ref = doc(db, 'admins', ADMIN); const s = await tx.get(ref); const d = s.data();
+        const ref = doc(db, 'admins_secure_test', ADMIN); const s = await tx.get(ref); const d = s.data();
         d.groups = [...(d.groups || []), { gid, name }]; tx.set(ref, d); A = d;
       });
       AG[gid] = { name, members, meetings: [], lastChange: null };
@@ -449,7 +449,7 @@ function openNewGroup(){
    ========================================================= */
 let G = null;
 function initGroup(gid){
-  onSnapshot(doc(db, 'groups', gid), snap => {
+  onSnapshot(doc(db, 'groups_secure_test', gid), snap => {
     if(!snap.exists()){ $app.innerHTML = `<div class="empty">このページは見つかりませんでした。<br>グループLINEに貼られたURLをもう一度開いてください。</div>`; return; }
     G = snap.data();
     if(!$modal.classList.contains('hidden') && $modal.dataset.keep) return; // 入力中は画面を書き換えない
@@ -481,7 +481,7 @@ function askMe(){
 
 // 最新のデータを読み直してから変更して保存（同時編集で上書きされないように）
 async function mutate(fn){
-  const ref = doc(db, 'groups', GID);
+  const ref = doc(db, 'groups_secure_test', GID);
   let result;
   await runTransaction(db, async tx => {
     const s = await tx.get(ref);
