@@ -109,7 +109,7 @@
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc, setDoc, onSnapshot,runTransaction,collection,serverTimestamp} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { getAuth, onAuthStateChanged, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const firebaseConfig = {
@@ -501,16 +501,31 @@ function askMe(){
 // 最新のデータを読み直してから変更して保存（同時編集で上書きされないように）
 async function mutate(fn){
   const ref = doc(db, GROUPS, GID);
+  const auditRef = doc(collection(db, 'audit_secure_test'));
+const actor = auth.currentUser;
+if (!actor || !actor.emailVerified) throw new Error('認証が必要です');
   let result;
   await runTransaction(db, async tx => {
     const s = await tx.get(ref);
     if(!s.exists()) throw new Error('notfound');
     const d = s.data();
+    const adminId = d.adminId;
+    const before = structuredClone(d);
     d.meetings = d.meetings || []; d.members = d.members || [];
     result = fn(d);
     if(result === false) return;
     d.updatedAt = Date.now();
     tx.set(ref, d);
+    tx.set(auditRef, {
+  groupId: GID,
+  adminId: adminId,
+  actorUid: actor.uid,
+  actorEmail: actor.email,
+  at: Date.now(),
+  action: 'グループ情報を更新',
+  before: before,
+  after: structuredClone(d)
+});
   });
   return result;
 }
