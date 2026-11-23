@@ -210,6 +210,7 @@ function showError(e){ console.error(e); toast('保存できませんでした�
 // メールリンクの遷移先には元の ?g= / ?admin= を残す。
 // ブラウザをまたぐ場合は本人にメールアドレスを再入力してもらう。
 const auth = getAuth(app);
+  auth.languageCode = 'ja';
 const EMAIL_KEY = 'mtg_secure_test_signin_email';
 let started = false;
 let authBusy = false;
