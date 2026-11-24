@@ -481,7 +481,7 @@ async function mutate(fn){
     const s = await tx.get(ref);
     if(!s.exists()) throw new Error('notfound');
     const d = s.data();
-    const before = {name:d.name,members:d.members,meetings:d.meetings,lastChange:d.lastChange,updatedAt:d.updatedAt};
+    const before = structuredClone({name:d.name,members:d.members,meetings:d.meetings,lastChange:d.lastChange,updatedAt:d.updatedAt});
     d.meetings = d.meetings || []; d.members = d.members || [];
     result = fn(d);
     if(result === false) return;
