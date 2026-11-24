@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>【管理者限定編集テスト】打ち合わせ日程</title>
+<title>【登録済み利用者編集テスト】打ち合わせ日程</title>
 <style>
   :root{
     --bg:#f4f5f7; --card:#fff; --ink:#1d2330; --sub:#6b7280; --line:#e5e7eb;
@@ -102,7 +102,7 @@
 </style>
 </head>
 <body>
-<div style="position:sticky;top:0;z-index:80;background:#8b1e1e;color:white;padding:10px;text-align:center;font-weight:bold">🔐 管理者限定・テスト予定のみ編集（本番変更なし）</div>
+<div style="position:sticky;top:0;z-index:80;background:#8b1e1e;color:white;padding:10px;text-align:center;font-weight:bold">🔐 登録済み利用者・テスト予定のみ編集（本番変更なし）</div>
 <div id="app"><div class="loading">テスト環境に接続中…</div></div>
 <div id="modal" class="modal hidden"></div>
 <div id="toast" class="toast hidden"></div>
@@ -204,7 +204,7 @@ async function copyText(text){
 function splitNames(text){
   return [...new Set(String(text).split(/[\n,、，]/).map(s => s.trim()).filter(Boolean))];
 }
-function showError(e){ console.error(e); toast('保存できませんでした。通信状況を確認してもう一度お試しください'); }
+function showError(e){ console.error(e); toast(e?.code === 'permission-denied' ? '編集権限がありません。' : '保存できませんでした。もう一度お試しください'); }
 
 /* ---------- メールリンク認証（テスト専用） ---------- */
 // メールリンクの遷移先には元の ?g= / ?admin= を残す。
@@ -426,7 +426,7 @@ function renderGroup(){
   document.title = `${G.name}｜打ち合わせ日程`;
   $app.innerHTML = `
     <header class="top"><div><div class="kicker">打ち合わせ日程</div><h1>${esc(G.name)}</h1></div>
-      <span class="me">管理者テスト</span></header>
+      <span class="me">${G.ownerUid === auth.currentUser?.uid ? "管理者テスト" : "お客様テスト"}</span></header>
     <div class="hint">既存予定は読み取り専用です。テスト予定だけ追加・変更・削除できます。LINE通知は行いません。</div>
     <button class="btn primary block" id="addTest">＋ テスト予定を追加</button>
     <div class="section-title">今後の予定（${upcoming.length}）</div>
@@ -444,7 +444,7 @@ async function changeTest(id, action, fields){
  const ref=doc(db,GROUPS,GID);
  await runTransaction(db,async tx=>{
   const snap=await tx.get(ref); if(!snap.exists()) throw Error('not-found');
-  const d=snap.data(); if(d.ownerUid!==user.uid) throw Error('owner-required');
+  const d=snap.data(); // 編集権限はFirestoreルールで強制する（管理者または登録済みメンバー）。
   const meetings=[...(d.meetings||[])]; const now=Date.now();
   if(action==='add'){
    meetings.push({id:'migration-test-'+crypto.randomUUID(),migrationTest:true,...fields,participants:[{name:'テスト参加者',status:'in'}],createdAt:now,createdBy:user.email,changedAt:now,changedBy:user.email,testActorEmail:user.email,testActorAt:now});
