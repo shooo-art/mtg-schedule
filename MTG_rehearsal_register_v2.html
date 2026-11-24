@@ -1,0 +1,26 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>テスト移行リハーサル専用</title><style>body{font:16px sans-serif;max-width:720px;margin:40px auto;padding:20px}button{padding:12px;margin:8px}pre{white-space:pre-wrap}</style><h1>テスト移行リハーサル登録専用・分割版</h1><p>管理者専用。切替承認前は実行禁止。既存の管理者認証を使用します。</p><button id="check" disabled>最新データを読み取り・照合</button><button id="save" disabled>バックアップ保存</button><button id="commit" disabled>新保存先へ登録</button><pre id="out">認証確認中</pre><script type="module">
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+import {getAuth,onAuthStateChanged} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+import {getFirestore,doc,getDocFromServer,getDocsFromServer,collection,runTransaction} from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js';
+const firebaseConfig = {
+    apiKey: "AIzaSyBGOwjQb5lozlKnrGr_Rgg_SR6vbc5cN-A",
+    authDomain: "mtg-schedule-test.firebaseapp.com",
+    projectId: "mtg-schedule-test",
+    storageBucket: "mtg-schedule-test.firebasestorage.app",
+    messagingSenderId: "703817916112",
+    appId: "1:703817916112:web:ec7d70b5bd284f790b48d5"
+  };
+const app=initializeApp(firebaseConfig),db=getFirestore(app),auth=getAuth(app),uid="egFnqDGZaUYT1xZMPJMMBX54NWo1",aid="4CKMtw7EDe2XuZkRkkeEvWPHxCYE",verify=false;
+const $=id=>document.getElementById(id); let source=null,expected=null;
+const canon=x=>Array.isArray(x)?x.map(canon):x!==null&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canon(x[k])])):x;
+const equal=(a,b)=>JSON.stringify(canon(a))===JSON.stringify(canon(b));
+const read=async(c,id)=>{const s=await getDocFromServer(doc(db,c,id));return s.exists()?s.data():null};
+function guard(){if(auth.currentUser?.uid!==uid||!auth.currentUser.emailVerified)throw Error('管理者認証が必要です')}
+async function scan(){guard();const admin=await read('rehearsal_admins_old',aid);if(!admin||!Array.isArray(admin.groups)||admin.groups.length!==17)throw Error('管理一覧が17件ではありません');const ids=admin.groups.map(g=>g.gid);if(new Set(ids).size!==17||ids.some(id=>typeof id!=='string'||! /^[A-Za-z0-9]{20}$/.test(id)))throw Error('ID不一致');const all=await getDocsFromServer(collection(db,'rehearsal_groups_old'));const groups=Object.fromEntries(all.docs.map(s=>[s.id,s.data()]));const selected={};for(const id of ids){const g=groups[id];if(!g||!Array.isArray(g.meetings)||!Array.isArray(g.members)||typeof g.name!=='string'||typeof g.updatedAt!=='number'||!Object.hasOwn(g,'lastChange'))throw Error('元データ形式不一致');selected[id]={...g,ownerUid:uid,adminId:aid}}return {source:{projectId:firebaseConfig.projectId,exportedAt:new Date().toISOString(),admin,groups},expected:{admin:{...admin,ownerUid:uid},groups:selected}}}
+async function compare(e){const a=await read('rehearsal_admins_new',aid);const rows=await Promise.all(Object.entries(e.groups).map(async([id,g])=>[id,g,await read('rehearsal_groups_new',id)]));return {empty:a===null&&rows.every(r=>r[2]===null),same:equal(a,e.admin)&&rows.every(r=>equal(r[1],r[2])),safe:(a===null||equal(a,e.admin))&&rows.every(r=>r[2]===null||equal(r[1],r[2]))}}
+onAuthStateChanged(auth,u=>{$('check').disabled=!(u?.uid===uid&&u.emailVerified);$('out').textContent=$('check').disabled?'管理者認証が必要です。管理者専用Chromeで開いてください。':'管理者認証確認済み'});
+$('check').onclick=async()=>{ $('check').disabled=true;$('commit').disabled=true;$('save').disabled=true;try{const s=await scan();source=s.source;expected=s.expected;const c=await compare(expected);$('out').textContent=`元データ全${Object.keys(source.groups).length}グループ／対象17グループ／予定${Object.values(expected.groups).reduce((n,g)=>n+g.meetings.length,0)}件\n`+(c.same?'全項目一致':c.empty?'移行先未登録':c.safe?'途中登録済み・再開可能':'移行先不一致・登録停止');$('save').disabled=false;}catch(e){$('out').textContent=e.message}finally{$('check').disabled=false}};
+$('save').onclick=()=>{guard();const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(source,null,2)],{type:'application/json'}));a.download='MTGリハーサルバックアップ.json';a.click();URL.revokeObjectURL(a.href);if(!verify && expected && source)$('commit').disabled=false};
+$('commit').onclick=async()=>{if(verify)return;guard();if(!confirm('旧データ書き込み停止とバックアップ保存を確認しましたか？'))return;$('commit').disabled=true;try{const s=await scan();if(!equal(s.expected,expected)||!equal(s.source.groups,source.groups))throw Error('元データ変更あり。再確認してください');if(!(await compare(expected)).safe)throw Error('移行先不一致・登録停止');const entries=[['rehearsal_admins_new',aid,expected.admin],...Object.entries(expected.groups).map(([id,g])=>['rehearsal_groups_new',id,g])];$('check').disabled=true;$('save').disabled=true;let n=0;for(const [c,id,data] of entries){guard();await runTransaction(db,async tx=>{const ref=doc(db,c,id);const snap=await tx.get(ref);if(snap.exists()){if(!equal(snap.data(),data))throw Error('移行先不一致: '+id);return;}tx.set(ref,data);});$('out').textContent=`登録・確認 ${++n}/18件`;} $('out').textContent=(await compare(expected)).same?'登録成功・全項目一致':'登録後不一致・切替禁止'}catch(e){$('out').textContent=e.message}finally{$('check').disabled=false}};
+if(verify)$('commit').hidden=true;
+</script></html>
