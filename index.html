@@ -102,13 +102,15 @@
 </style>
 </head>
 <body>
+
 <div id="app"><div class="loading">読み込み中…</div></div>
 <div id="modal" class="modal hidden"></div>
 <div id="toast" class="toast hidden"></div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, doc, getDoc, onSnapshot, runTransaction, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getAuth, onAuthStateChanged, sendSignInLinkToEmail, isSignInWithEmailLink, signInWithEmailLink, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAngh-KTkoC1o0PqcV46WuCDeugzQnudG0",
@@ -121,6 +123,9 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+// 権限テスト専用。従来のテストデータには触れません。
+const ADMINS = 'admins_secure_v2';
+const GROUPS = 'groups_secure_v2';
 
 /* ---------- 小さな道具 ---------- */
 const $app = document.getElementById('app');
@@ -133,7 +138,7 @@ const CHANGED_DAYS = 3;   // 「変更あり」を表示する日数
 const params = new URLSearchParams(location.search);
 const GID = params.get('g');
 const ADMIN = params.get('admin');
-const BASE = location.origin + location.pathname;
+const BASE = location.origin + '/mtg-schedule/';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function rid(n){
@@ -201,34 +206,96 @@ function splitNames(text){
 }
 function showError(e){ console.error(e); toast('保存できませんでした。通信状況を確認してもう一度お試しください'); }
 
-/* ---------- 振り分け ---------- */
-if(GID) initGroup(GID);
-else if(ADMIN) initAdmin(ADMIN);
-else renderSetup();
+/* ---------- メールリンク認証（テスト専用） ---------- */
+// メールリンクの遷移先には元の ?g= / ?admin= を残す。
+// ブラウザをまたぐ場合は本人にメールアドレスを再入力してもらう。
+const auth = getAuth(app);
+const EMAIL_KEY = 'mtg_prod_v2_email';
+let started = false;
+let authBusy = false;
 
-/* =========================================================
-   初期設定（最初に1回だけ：管理ページを作る）
-   ========================================================= */
-function renderSetup(){
+function authErrorText(e){
+  console.error('メール認証エラー', e);
+  const code = e?.code || '';
+  if(code === 'auth/invalid-email') return 'メールアドレスの形式を確認してください。';
+  if(code === 'auth/quota-exceeded') return '認証メールの利用上限に達しました。時間をおいてお試しください。';
+  if(code === 'auth/too-many-requests') return '操作回数が多いため、少し時間をおいてお試しください。';
+  if(code === 'auth/invalid-action-code' || code === 'auth/expired-action-code') return '認証リンクの有効期限が切れたか、使用済みです。もう一度メールを送信してください。';
+  if(code === 'auth/unauthorized-continue-uri' || code === 'auth/invalid-continue-uri') return 'Firebaseの「承認済みドメイン」に shooo-art.github.io が登録されているか確認してください。';
+  return `認証できませんでした（${code || '通信エラー'}）。再度お試しください。`;
+}
+function renderEmailLogin(message = ''){
   $app.innerHTML = `
-    <header class="top"><div><div class="kicker">打ち合わせ日程</div><h1>はじめに</h1></div></header>
-    <div class="hint">グループLINEのメンバーの方は、グループLINEに貼られたURLから開いてください。</div>
+    <header class="top"><div><div class="kicker">初回認証</div><h1>メールでログイン</h1></div></header>
+    <div class="hint">初回だけメールで本人確認します。パスワードは不要です。届いたメールのリンクを押してください。</div>
+    ${message ? `<div class="notice">${esc(message)}</div>` : ''}
     <div class="card">
-      <div style="font-weight:700;margin-bottom:6px">管理者の方へ</div>
-      <div style="font-size:14px;line-height:1.7;color:var(--sub)">
-        最初に1回だけ「管理ページ」を作ります。作成後に表示されるURLは<b>あなた専用</b>です。ブックマークやLINEのKeepメモに保存してください。
-      </div>
-      <button class="btn primary block" style="margin-top:12px" id="mkAdmin">管理ページを作成する</button>
+      <div class="field"><label for="loginEmail">メールアドレス</label>
+      <input type="email" id="loginEmail" autocomplete="email" inputmode="email" placeholder="example@example.com" style="width:100%;font-size:16px;padding:12px;border:1px solid var(--line);border-radius:10px"></div>
+      <button class="btn primary block" id="sendEmailLink">認証メールを送る</button>
+      <div class="meta" style="margin-top:12px;line-height:1.7">メールが届かない場合は迷惑メールフォルダも確認してください。リンクは一度だけ使用できます。</div>
     </div>`;
-  document.getElementById('mkAdmin').onclick = async (ev) => {
-    ev.target.disabled = true; ev.target.textContent = '作成中…';
-    try{
-      const key = rid(28);
-      await setDoc(doc(db, 'admins', key), { groups: [], createdAt: Date.now() });
-      location.replace(`${BASE}?admin=${key}&first=1`);
-    }catch(e){ showError(e); ev.target.disabled = false; ev.target.textContent = '管理ページを作成する'; }
+  const input = document.getElementById('loginEmail');
+  const button = document.getElementById('sendEmailLink');
+  try { input.value = localStorage.getItem(EMAIL_KEY) || ''; } catch (_) {}
+  button.onclick = async () => {
+    const email = input.value.trim();
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast('正しいメールアドレスを入力してください'); return; }
+    button.disabled = true; button.textContent = '送信中…';
+    try {
+      await sendSignInLinkToEmail(auth, email, {
+        url: BASE + '?' + new URLSearchParams(GID ? {g:GID} : ADMIN ? {admin:ADMIN} : {}).toString(),
+        handleCodeInApp: true
+      });
+      try { localStorage.setItem(EMAIL_KEY, email); } catch (_) {}
+      $app.innerHTML = `<header class="top"><h1>認証メールを送信しました</h1></header>
+        <div class="hint">${esc(email)} に届いたメールのリンクを押してください。<br>リンクを開いた後は、日程調整ページに進みます。</div>
+        <button class="btn ghost block" id="retryEmail">メールを再送する・アドレスを変更する</button>`;
+      document.getElementById('retryEmail').onclick = () => renderEmailLogin();
+    } catch (e) {
+      renderEmailLogin(authErrorText(e));
+    }
   };
 }
+async function finishEmailLink(){
+  if(!isSignInWithEmailLink(auth, location.href)) return false;
+  $app.innerHTML = '<div class="loading">メール認証を確認しています…</div>';
+  let email = '';
+  try { email = localStorage.getItem(EMAIL_KEY) || ''; } catch (_) {}
+  if(!email) email = (prompt('認証メールを受け取ったメールアドレスを入力してください') || '').trim();
+  if(!email){ renderEmailLogin('認証に使ったメールアドレスを入力して、もう一度リンクを開いてください。'); return false; }
+  try {
+    await signInWithEmailLink(auth, email, location.href);
+    try { localStorage.removeItem(EMAIL_KEY); } catch (_) {}
+    // 認証用の使い捨てコードだけをURLから除き、グループ・管理者IDは維持する。
+    const clean = new URL(location.href);
+    ['apiKey','oobCode','mode','lang','continueUrl','tenantId'].forEach(k => clean.searchParams.delete(k));
+    history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+  } catch (e) { renderEmailLogin(authErrorText(e)); return false; }
+  return true;
+}
+function launchApp(){
+  if(started) return;
+  started = true;
+  if(GID) initGroup(GID);
+  else if(ADMIN) initAdmin(ADMIN);
+  else location.replace(BASE + '?admin=4CKMtw7EDe2XuZkRkkeEvWPHxCYE');
+}
+async function initEmailAuth(){
+  // 以前のテストで作られた匿名アカウントはログイン済みとして扱わない。
+  if(isSignInWithEmailLink(auth, location.href) && !(await finishEmailLink())) return;
+  onAuthStateChanged(auth, async user => {
+    if(authBusy) return;
+    if(user && !user.isAnonymous && user.emailVerified){ launchApp(); return; }
+    if(user && user.isAnonymous){
+      authBusy = true;
+      try { await signOut(auth); } catch (e) { console.error(e); }
+      authBusy = false;
+    }
+    if(!started && !isSignInWithEmailLink(auth, location.href)) renderEmailLogin();
+  });
+}
+
 
 /* =========================================================
    管理ページ（全グループの一覧）
@@ -237,16 +304,16 @@ let A = null;          // admins/{key} の中身
 let AG = {};           // gid -> group data
 async function initAdmin(key){
   try{
-    const snap = await getDoc(doc(db, 'admins', key));
+    const snap = await getDoc(doc(db, ADMINS, key));
     if(!snap.exists()){ $app.innerHTML = `<div class="empty">管理ページが見つかりません。<br>URLをもう一度確認してください。</div>`; return; }
     A = snap.data();
     await loadAdminGroups();
     renderAdmin();
-  }catch(e){ console.error(e); $app.innerHTML = `<div class="empty">読み込めませんでした。<br>通信状況を確認して、ページを再読み込みしてください。</div>`; }
+  }catch(e){ console.error(e); $app.innerHTML = `<div class="empty">読み込めませんでした。<br>通信状況またはアクセス権限を確認してください。</div>`; }
 }
 async function loadAdminGroups(){
   const list = A.groups || [];
-  const snaps = await Promise.all(list.map(g => getDoc(doc(db, 'groups', g.gid)).catch(() => null)));
+  const snaps = await Promise.all(list.map(g => getDoc(doc(db, GROUPS, g.gid)).catch(() => null)));
   AG = {};
   snaps.forEach((s, i) => { if(s && s.exists()) AG[list[i].gid] = s.data(); });
 }
@@ -298,7 +365,7 @@ function renderAdmin(){
     ${rows.length ? list : `<div class="empty">まだグループがありません。<br>「＋ グループを作成」から始めましょう。</div>`}
     <div class="footer-links"><button class="linkbtn" id="copyAdmin2">この管理ページのURLをコピー</button></div>`;
 
-  document.getElementById('reload').onclick = async () => { toast('更新中…'); try{ const s = await getDoc(doc(db,'admins',ADMIN)); A = s.data(); await loadAdminGroups(); renderAdmin(); toast('最新の状態です'); }catch(e){ showError(e); } };
+  document.getElementById('reload').onclick = async () => { toast('更新中…'); try{ const s = await getDoc(doc(db,ADMINS,ADMIN)); A = s.data(); await loadAdminGroups(); renderAdmin(); toast('最新の状態です'); }catch(e){ showError(e); } };
   document.getElementById('newGroup').onclick = openNewGroup;
   const ca = document.getElementById('copyAdmin'); if(ca) ca.onclick = () => copyText(adminUrl(ADMIN));
   document.getElementById('copyAdmin2').onclick = () => copyText(adminUrl(ADMIN));
@@ -312,7 +379,7 @@ $app.addEventListener('click', async e => {
     if(!b.classList.contains('armed')){ b.classList.add('armed','danger'); b.textContent = 'もう一度押すと外します'; setTimeout(() => { if(b.isConnected){ b.classList.remove('armed','danger'); b.textContent = '一覧から外す'; } }, 4000); return; }
     try{
       await runTransaction(db, async tx => {
-        const ref = doc(db, 'admins', ADMIN); const s = await tx.get(ref); const d = s.data();
+        const ref = doc(db, ADMINS, ADMIN); const s = await tx.get(ref); const d = s.data();
         d.groups = (d.groups || []).filter(x => x.gid !== gid); tx.set(ref, d); A = d;
       });
       renderAdmin(); toast('一覧から外しました');
@@ -345,9 +412,10 @@ function openNewGroup(){
     ev.target.disabled = true; ev.target.textContent = '作成中…';
     try{
       const gid = rid(20);
-      await setDoc(doc(db, 'groups', gid), { name, members, meetings: [], updatedAt: Date.now(), lastChange: null });
+
       await runTransaction(db, async tx => {
-        const ref = doc(db, 'admins', ADMIN); const s = await tx.get(ref); const d = s.data();
+        const ref = doc(db, ADMINS, ADMIN); const s = await tx.get(ref); const d = s.data();
+        tx.set(doc(db,GROUPS,gid),{name,members,meetings:[],updatedAt:Date.now(),lastChange:null,ownerUid:auth.currentUser.uid,adminId:ADMIN});
         d.groups = [...(d.groups || []), { gid, name }]; tx.set(ref, d); A = d;
       });
       AG[gid] = { name, members, meetings: [], lastChange: null };
@@ -361,8 +429,22 @@ function openNewGroup(){
    グループページ（メンバー用）
    ========================================================= */
 let G = null;
-function initGroup(gid){
-  onSnapshot(doc(db, 'groups', gid), snap => {
+async function initGroup(gid){
+  try {
+    const user = auth.currentUser;
+    if (!user?.emailVerified || !user.email) throw Error('auth-required');
+    const membership = doc(db, GROUPS, gid, 'memberships', user.uid);
+    const existing = await getDoc(membership);
+    if (!existing.exists()) {
+      try { await setDoc(membership, {uid:user.uid,email:user.email,registeredAt:serverTimestamp()}); }
+      catch (e) { if (!(await getDoc(membership)).exists()) throw e; }
+    }
+  } catch (e) {
+    console.error(e);
+    $app.innerHTML = '<div class="empty">グループに登録できませんでした。URLと認証状態を確認してください。</div>';
+    return;
+  }
+  onSnapshot(doc(db, GROUPS, gid), snap => {
     if(!snap.exists()){ $app.innerHTML = `<div class="empty">このページは見つかりませんでした。<br>グループLINEに貼られたURLをもう一度開いてください。</div>`; return; }
     G = snap.data();
     if(!$modal.classList.contains('hidden') && $modal.dataset.keep) return; // 入力中は画面を書き換えない
@@ -394,17 +476,22 @@ function askMe(){
 
 // 最新のデータを読み直してから変更して保存（同時編集で上書きされないように）
 async function mutate(fn){
-  const ref = doc(db, 'groups', GID);
+  const ref = doc(db, GROUPS, GID);
   let result;
   await runTransaction(db, async tx => {
     const s = await tx.get(ref);
     if(!s.exists()) throw new Error('notfound');
     const d = s.data();
+    const before = structuredClone({name:d.name,members:d.members,meetings:d.meetings,lastChange:d.lastChange,updatedAt:d.updatedAt});
     d.meetings = d.meetings || []; d.members = d.members || [];
     result = fn(d);
     if(result === false) return;
     d.updatedAt = Date.now();
-    tx.set(ref, d);
+    const log = doc(db,'audit_secure_v2',crypto.randomUUID());
+    const after = {name:d.name,members:d.members,meetings:d.meetings,lastChange:d.lastChange,updatedAt:d.updatedAt};
+    d.auditId=log.id;
+    tx.set(ref,d);
+    tx.set(log,{groupId:GID,adminId:d.adminId,actorUid:auth.currentUser.uid,actorEmail:auth.currentUser.email,at:serverTimestamp(),action:'グループ更新',before,after});
   });
   return result;
 }
@@ -646,6 +733,7 @@ function openMembers(){
     }catch(e){ showError(e); }
   };
 }
+initEmailAuth().catch(e => renderEmailLogin(authErrorText(e)));
 </script>
 </body>
 </html>
